@@ -1,0 +1,69 @@
+"""
+Queue-backed publisher/consumer skeleton for UWB measurements.
+
+Producers call `put(reading)` to enqueue parsed UWB readings.
+An internal worker thread dequeues and forwards each reading to a supplied
+`process` callable (e.g., the future LocalizationEngine.process).
+"""
+
+from __future__ import annotations
+
+import queue
+import threading
+from typing import Callable, Optional
+
+from DroneLandingLocalizationEngine.serial.serialization import UwbReading
+
+
+class MeasurementQueue:
+
+    def __init__(self, maxsize: int = 100) -> None:
+        self._q: queue.Queue[UwbReading] = queue.Queue(maxsize=maxsize)
+        self._worker: Optional[threading.Thread] = None
+        self._stop = threading.Event()
+        self._process: Optional[Callable[[UwbReading], None]] = None
+
+    def put(self, reading: UwbReading, block: bool = True, timeout: float | None = None) -> None:
+        self._q.put(reading, block=block, timeout=timeout)
+
+    # TODO : Remove this callable and replace with localization engine class
+    def start_worker(self, process_fn: Callable[[UwbReading], None]) -> None:
+        """
+        Start the consumer thread.
+
+        `process_fn` should accept a `UwbReading` and perform localization
+        (or any downstream work). It is called for every dequeued item.
+        """
+        if self._worker and self._worker.is_alive():
+            return
+
+        self._process = process_fn
+        self._stop.clear()
+        self._worker = threading.Thread(target=self._loop, daemon=True)
+        self._worker.start()
+
+    def stop_worker(self) -> None:
+        """Signal worker to stop and wait for it to exit."""
+        self._stop.set()
+        if self._worker:
+            self._worker.join(timeout=1)
+
+    def _loop(self) -> None:
+        assert self._process, "process_fn not set"
+        while not self._stop.is_set():
+            try:
+                item = self._q.get(timeout=0.1)
+            except queue.Empty:
+                continue
+            try:
+                self._process(item)
+            finally:
+                self._q.task_done()
+
+
+# Example wiring (optional reference):
+# from DroneLandingLocalizationEngine.localization.engine import LocalizationEngine
+# mq = MeasurementQueue(maxsize=50)
+# engine = LocalizationEngine()
+# mq.start_worker(engine.process)
+# reader = UwbSerialReader(output_queue=mq._q)  # or call mq.put in reader loop
