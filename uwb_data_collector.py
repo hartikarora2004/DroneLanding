@@ -1,6 +1,6 @@
 import serial
 
-PORT = "COM5"
+PORT = "COM9"
 BAUDRATE = 115200
 OUTPUT_FILE = "uwb_raw_data.txt"
 

@@ -1,3 +1,4 @@
 .env
 droneEnv
+DroneLandingVenv
 **/__pycache__

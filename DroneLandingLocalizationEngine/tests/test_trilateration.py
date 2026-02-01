@@ -23,6 +23,7 @@ def test_trilateration_uses_three_nearest():
     result = trilateration_3d(anchor_locations, distances)
     true_distance = np.array([50, 50, 50])
     res1 = np.allclose(true_distance, result, rtol=1e-1, atol=1e-1)
+    print(result)
     assert res1 == True
 
     # Test 2: Original point = (40, 40, 30)
@@ -30,6 +31,7 @@ def test_trilateration_uses_three_nearest():
     result = trilateration_3d(anchor_locations, distances)
     true_distance = np.array([40, 40, 30])
     res1 = np.allclose(true_distance, result, rtol=1e-1, atol=1e-1)
+    print(result)
     assert res1 == True
 
     # Test 3: Original point = (200, 200, 200)
@@ -37,5 +39,6 @@ def test_trilateration_uses_three_nearest():
     result = trilateration_3d(anchor_locations, distances)
     true_distance = np.array([200, 200,200])
     res1 = np.allclose(true_distance, result, rtol=1e-1, atol=1e-1)
+    print(result)
 
     assert res1 == True
