@@ -10,23 +10,20 @@ from __future__ import annotations
 
 import queue
 import threading
-from typing import Callable, Optional
-
-from DroneLandingLocalizationEngine.serial.serialization import UwbReading
+from typing import Optional
 
 
 class MeasurementQueue:
 
     def __init__(self, localizationEngine, maxsize: int = 100) -> None:
-        self._q: queue.Queue[UwbReading] = queue.Queue(maxsize=maxsize)
+        self._q: queue.Queue[str] = queue.Queue(maxsize=maxsize)
         self._worker: Optional[threading.Thread] = None
         self._stop = threading.Event()
         self._localizationEngine = localizationEngine
 
-    def put(self, reading: UwbReading, block: bool = True, timeout: float | None = None) -> None:
+    def put(self, reading: str, block: bool = True, timeout: float | None = None) -> None:
         self._q.put(reading, block=block, timeout=timeout)
 
-    # TODO : Remove this callable and replace with localization engine class
     def start_worker(self) -> None:
         """
         Start the consumer thread.
@@ -40,6 +37,7 @@ class MeasurementQueue:
         self._stop.clear()
         self._worker = threading.Thread(target=self._loop, daemon=True)
         self._worker.start()
+        print("Started worker")
 
     def stop_worker(self) -> None:
         """Signal worker to stop and wait for it to exit."""
@@ -48,13 +46,13 @@ class MeasurementQueue:
             self._worker.join(timeout=1)
 
     def _loop(self) -> None:
-        assert self._process, "process_fn not set"
         while not self._stop.is_set():
             try:
                 item = self._q.get(timeout=0.1)
             except queue.Empty:
                 continue
             try:
+                print("Trying to process : ", item)
                 self._localizationEngine.process(item)
             finally:
                 self._q.task_done()

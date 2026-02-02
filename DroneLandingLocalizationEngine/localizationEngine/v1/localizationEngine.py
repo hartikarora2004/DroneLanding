@@ -21,6 +21,7 @@ class LocalizationEngine:
 
     def process(self, measurement):
         measurement_map = parse_anchor_locations(measurement)
+        
         for anchor, new_val in measurement_map.items():
             if new_val is None:
                 continue
@@ -37,9 +38,11 @@ class LocalizationEngine:
         }
 
         if len(valid_distances) < 4:
+            print("Invalid result")
             return None
 
         trilateration_result = trilateration_3d(self._anchor_locations, valid_distances)
 
         corrected_result = self._kalman_filter.update(trilateration_result)
+        print("Corrected_result : ", corrected_result)
         return corrected_result
