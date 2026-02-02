@@ -24,7 +24,6 @@ except ImportError as exc:  # pragma: no cover - import-time guard
     raise ImportError("pyserial is required for UwbSerialReader") from exc
 
 from DroneLandingLocalizationEngine.settings import settings
-from DroneLandingLocalizationEngine.serial.utils import parse_line
 
 class UwbReading:
     values: Dict[str, Optional[float]]
@@ -69,8 +68,8 @@ class UwbSerialReader:
             line = line_bytes.decode(errors="ignore").strip()
             if not line:
                 continue
-            reading = self.parse_line(line)
+            print("Publishing line : ", line)
             if self._queue is not None:
-                self._queue.put(reading)
+                self._queue.put(line)
 
     

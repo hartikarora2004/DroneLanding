@@ -14,7 +14,7 @@ class Settings:
         default_path = Path(__file__).resolve().parents[1] / ".env"
         self.env_path: Path = Path(env_path) if env_path else default_path
         self._values: Dict[str, str] = {}
-        print(self._values)
+        # print(self._values)
         self._load()
 
     def _load(self) -> None:
@@ -47,7 +47,12 @@ class Settings:
             attributeMap[i] = self._values.get(i)
         
         return attributeMap
-
+    
+    def printAttributes(self) -> Any:
+        print("******************")
+        for i in self._values:
+            print(f"{i} \t \t \t : {self._values[i]}")
+        print("******************")
 
 
 # Singleton-style instance if callers want a ready-to-use settings object.
