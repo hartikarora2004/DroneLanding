@@ -17,17 +17,17 @@ from DroneLandingLocalizationEngine.serial.serialization import UwbReading
 
 class MeasurementQueue:
 
-    def __init__(self, maxsize: int = 100) -> None:
+    def __init__(self, localizationEngine, maxsize: int = 100) -> None:
         self._q: queue.Queue[UwbReading] = queue.Queue(maxsize=maxsize)
         self._worker: Optional[threading.Thread] = None
         self._stop = threading.Event()
-        self._process: Optional[Callable[[UwbReading], None]] = None
+        self._localizationEngine = localizationEngine
 
     def put(self, reading: UwbReading, block: bool = True, timeout: float | None = None) -> None:
         self._q.put(reading, block=block, timeout=timeout)
 
     # TODO : Remove this callable and replace with localization engine class
-    def start_worker(self, process_fn: Callable[[UwbReading], None]) -> None:
+    def start_worker(self) -> None:
         """
         Start the consumer thread.
 
@@ -37,7 +37,6 @@ class MeasurementQueue:
         if self._worker and self._worker.is_alive():
             return
 
-        self._process = process_fn
         self._stop.clear()
         self._worker = threading.Thread(target=self._loop, daemon=True)
         self._worker.start()
@@ -56,7 +55,7 @@ class MeasurementQueue:
             except queue.Empty:
                 continue
             try:
-                self._process(item)
+                self._localizationEngine.process(item)
             finally:
                 self._q.task_done()
 
