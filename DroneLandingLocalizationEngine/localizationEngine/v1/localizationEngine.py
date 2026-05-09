@@ -2,6 +2,9 @@
 This is the localization Engine.
 """
 import math
+import time
+# from datetime import datetime
+
 from DroneLandingLocalizationEngine.localizationEngine.utils.constants import anchor_locations
 from DroneLandingLocalizationEngine.localizationEngine.utils.trilateration_3d import trilateration_3d
 from DroneLandingLocalizationEngine.localizationEngine.utils.kalman_filter import PositionKalman3D
@@ -11,7 +14,7 @@ class LocalizationEngine:
     def __init__(self):
         self._anchor_locations = anchor_locations
         self._measurements = {}
-        self._alpha = 0.8
+        self._alpha = 0.5
         self._dt = 1.0
 
         for anchor in self._anchor_locations:
@@ -19,9 +22,26 @@ class LocalizationEngine:
 
         self._kalman_filter = PositionKalman3D(dt=self._dt, init_pos=[0, 0, 0], init_vel=[0, 0, 0])
 
+        self._output_file = "corrected_positions.txt"
+
+        with open(self._output_file, "w") as f:
+            f.write("timestamp,x,y,z\n")
+
+    def _store_result(self, corrected_result):
+        if corrected_result is None:
+            return
+
+        timestamp = time.time()
+
+        # NEW: append corrected result to file
+        with open(self._output_file, "a") as f:
+            f.write(f"{timestamp} : {corrected_result}\n")
+
+
     def process(self, measurement):
         measurement_map = parse_anchor_locations(measurement)
-        
+        if measurement_map == None:
+            return None
         for anchor, new_val in measurement_map.items():
             if new_val is None:
                 continue
@@ -44,5 +64,8 @@ class LocalizationEngine:
         trilateration_result = trilateration_3d(self._anchor_locations, valid_distances)
 
         corrected_result = self._kalman_filter.update(trilateration_result)
-        print("Corrected_result : ", corrected_result)
+        print("Corrected_result : ", corrected_result )
+
+        self._store_result(f'{measurement} : {corrected_result}')
+
         return corrected_result

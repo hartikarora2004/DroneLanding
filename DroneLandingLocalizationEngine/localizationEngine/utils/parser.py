@@ -7,7 +7,8 @@ def parse_anchor_locations(line : str, missing_value = None) -> dict[str, float]
         raw_vals = [v.strip() for v in right.split("|")]
 
         if len(nodes) != len(raw_vals):
-            raise ValueError("Number of nodes and values do not match")
+            print(f"Values are invalid or incorrect:-) : {line}")
+            return 
 
         values = []
         for v in raw_vals:
@@ -21,4 +22,4 @@ def parse_anchor_locations(line : str, missing_value = None) -> dict[str, float]
         return dict(zip(nodes, values))
 
     except Exception as e:
-        raise ValueError(f"Invalid string value : {line}") from e
+        print(f"Invalid string value : {line}")
