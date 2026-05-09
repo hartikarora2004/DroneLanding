@@ -48,7 +48,11 @@ class UwbSerialReader:
 
     def start(self) -> None:
         self._stop.clear()
-        self._ser = serial.Serial(self.port, self.baudrate, timeout=self.timeout)
+        try:
+            self._ser = serial.Serial(self.port, self.baudrate, timeout=self.timeout)
+        except Exception as e:
+            print("Error initilization serialization engine : ", e)
+        print("Port opened")        
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
 
@@ -66,6 +70,7 @@ class UwbSerialReader:
             if not line_bytes:
                 continue
             line = line_bytes.decode(errors="ignore").strip()
+            print(line)
             if not line:
                 continue
             print("Publishing line : ", line)

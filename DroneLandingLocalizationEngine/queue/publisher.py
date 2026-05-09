@@ -64,3 +64,14 @@ class MeasurementQueue:
 # engine = LocalizationEngine()
 # mq.start_worker(engine.process)
 # reader = UwbSerialReader(output_queue=mq._q)  # or call mq.put in reader loop
+                # File "C:\Program Files\Python311\Lib\threading.py", line 975, in run
+                # `` self._target(*self._args, **self._kwargs)
+                # File "E:\DroneLanding\DroneLandingLocalizationEngine\queue\publisher.py", line 56, in _loop
+                #     self._localizationEngine.process(item)
+                # File "E:\DroneLanding\DroneLandingLocalizationEngine\localizationEngine\v1\localizationEngine.py", line 64, in process  
+                #     trilateration_result = trilateration_3d(self._anchor_locations, valid_distances)
+                #                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                # File "E:\DroneLanding\DroneLandingLocalizationEngine\localizationEngine\utils\trilateration_3d.py", line 8, in trilateration_3d
+                #     anchor_coordinates.append(anchor_locations[name])
+                #                             ~~~~~~~~~~~~~~~~^^^^^^
+                # KeyError: 'ode1'

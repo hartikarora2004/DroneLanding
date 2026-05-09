@@ -5,7 +5,6 @@ def trilateration_3d(anchor_locations, anchor_distances):
     anchor_coordinates = []
     distances = []
     for name in anchor_distances:
-        print(name)
         anchor_coordinates.append(anchor_locations[name])
         distances.append(anchor_distances[name])
 
