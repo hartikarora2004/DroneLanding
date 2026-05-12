@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="
+          default-src *;
+          script-src  * 'unsafe-inline' 'unsafe-eval';
+          style-src   * 'unsafe-inline';
+          connect-src * ws://127.0.0.1:8765 wss://127.0.0.1:8765;
+          img-src     * data: blob:;
+        " />
+  <title>Drone Landing — UWB Localizer</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #0a0a0f;
+      color: #c8d0e0;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      overflow: hidden;
+    }
+
+    #canvas-container {
+      position: fixed;
+      inset: 0;
+    }
+
+    /* ── top-left status bar ── */
+    #status-bar {
+      position: fixed;
+      top: 16px;
+      left: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      opacity: 0.85;
+    }
+
+    #ws-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #333;
+      transition: background 0.3s;
+    }
+    #ws-dot.connected    { background: #3ddc84; box-shadow: 0 0 6px #3ddc84; }
+    #ws-dot.connecting   { background: #f0c040; box-shadow: 0 0 6px #f0c040; }
+    #ws-dot.disconnected { background: #e05555; box-shadow: 0 0 6px #e05555; }
+
+    #ws-label { color: #6a7a8a; letter-spacing: 0.05em; }
+
+    /* ── data panel (bottom-left) ── */
+    #panel {
+      position: fixed;
+      bottom: 20px;
+      left: 16px;
+      background: rgba(10, 12, 20, 0.75);
+      border: 1px solid #1e2a3a;
+      border-radius: 4px;
+      padding: 12px 16px;
+      min-width: 220px;
+      backdrop-filter: blur(4px);
+    }
+
+    #panel h2 {
+      font-size: 10px;
+      letter-spacing: 0.15em;
+      color: #3ddc84;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+      border-bottom: 1px solid #1e2a3a;
+      padding-bottom: 6px;
+    }
+
+    .row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 4px;
+      gap: 20px;
+    }
+
+    .label { color: #4a5a6a; }
+    .val   { color: #c8d0e0; text-align: right; }
+    .val.active { color: #3ddc84; }
+
+    .divider {
+      border: none;
+      border-top: 1px solid #1a2030;
+      margin: 8px 0;
+    }
+
+    .dist-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4px 16px;
+    }
+
+    /* ── top-right hint ── */
+    #hint {
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      color: #2a3a4a;
+      font-size: 10px;
+      text-align: right;
+      line-height: 1.8;
+    }
+
+    /* ── test button ── */
+    #test-btn {
+      position: fixed;
+      bottom: 20px;
+      right: 16px;
+      background: transparent;
+      border: 1px solid #1e2a3a;
+      border-radius: 4px;
+      color: #4a6a8a;
+      font-family: 'Courier New', monospace;
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      padding: 6px 14px;
+      cursor: pointer;
+      transition: border-color 0.2s, color 0.2s;
+    }
+    #test-btn:hover           { border-color: #3ddc84; color: #3ddc84; }
+    #test-btn.running         { border-color: #f0c040; color: #f0c040; }
+  </style>
+</head>
+<body>
+
+<div id="canvas-container"></div>
+
+<div id="status-bar">
+  <div id="ws-dot" class="disconnected"></div>
+  <span id="ws-label">DISCONNECTED</span>
+</div>
+
+<div id="panel">
+  <h2>Position</h2>
+  <div class="row"><span class="label">X</span><span class="val" id="px">—</span></div>
+  <div class="row"><span class="label">Y</span><span class="val" id="py">—</span></div>
+  <div class="row"><span class="label">Z</span><span class="val" id="pz">—</span></div>
+  <hr class="divider" />
+  <h2>Distances (cm)</h2>
+  <div class="dist-grid">
+    <div class="row"><span class="label">Node1</span><span class="val" id="d1">—</span></div>
+    <div class="row"><span class="label">Node2</span><span class="val" id="d2">—</span></div>
+    <div class="row"><span class="label">Node3</span><span class="val" id="d3">—</span></div>
+    <div class="row"><span class="label">Node4</span><span class="val" id="d4">—</span></div>
+  </div>
+</div>
+
+<button id="test-btn" onclick="toggleTest()">▶ TEST SIM</button>
+
+<div id="hint">
+  drag · rotate<br>
+  scroll · zoom<br>
+  right-drag · pan
+</div>
+
+<!-- Three.js via import map — works with file:// and avoids the missing examples/js/ 404 -->
+<script type="importmap">
+{
+  "imports": {
+    "three":          "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/":  "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ═══════════════════════════════════════════════════════
+//  Scene setup
+// ═══════════════════════════════════════════════════════
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setClearColor(0x0a0a0f);
+document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 5000);
+camera.position.set(180, 180, 220);
+camera.lookAt(50, 50, 0);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(50, 50, 20);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.update();
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ═══════════════════════════════════════════════════════
+//  Grid  (XY plane, units = cm)
+// ═══════════════════════════════════════════════════════
+
+const GRID_SIZE  = 100;   // cm — matches anchor layout
+const GRID_DIV   = 10;
+
+const gridHelper = new THREE.GridHelper(GRID_SIZE, GRID_DIV, 0x4a9eff, 0x2a4a6a);
+gridHelper.rotation.x = Math.PI / 2;          // lay flat on XY plane
+gridHelper.position.set(GRID_SIZE / 2, GRID_SIZE / 2, 0);
+scene.add(gridHelper);
+
+// Axis lines
+function axisLine(from, to, color) {
+  const mat = new THREE.LineBasicMaterial({ color });
+  const geo = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(...from),
+    new THREE.Vector3(...to),
+  ]);
+  return new THREE.Line(geo, mat);
+}
+scene.add(axisLine([0,0,0],[120,0,0], 0x3a1a1a));
+scene.add(axisLine([0,0,0],[0,120,0], 0x1a3a1a));
+scene.add(axisLine([0,0,0],[0,0,80],  0x1a1a3a));
+
+// ═══════════════════════════════════════════════════════
+//  Anchors  — fixed positions (cm)
+// ═══════════════════════════════════════════════════════
+
+const ANCHORS = {
+  Node1: [120,   0, 0],
+  Node2: [  0, 120, 0],
+  Node3: [120, 120, 0],
+  Node4: [  0,   0, 0],
+};
+
+const anchorColor = 0x3ddc84;
+const anchorMeshes = {};
+
+for (const [name, pos] of Object.entries(ANCHORS)) {
+  const geo  = new THREE.OctahedronGeometry(3, 0);
+  const mat  = new THREE.MeshBasicMaterial({ color: anchorColor, wireframe: true });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(...pos);
+  scene.add(mesh);
+  anchorMeshes[name] = mesh;
+
+  // label sprite
+  addLabel(name, pos, anchorColor);
+}
+
+// ═══════════════════════════════════════════════════════
+//  Tag / Drone  — moving position
+// ═══════════════════════════════════════════════════════
+
+const tagGeo  = new THREE.SphereGeometry(4, 12, 8);
+const tagMat  = new THREE.MeshBasicMaterial({ color: 0x5599ff });
+const tagMesh = new THREE.Mesh(tagGeo, tagMat);
+tagMesh.position.set(50, 50, 30);   // default start
+scene.add(tagMesh);
+
+// Glow ring around tag
+const ringGeo = new THREE.RingGeometry(5, 6, 24);
+const ringMat = new THREE.MeshBasicMaterial({ color: 0x5599ff, side: THREE.DoubleSide, transparent: true, opacity: 0.35 });
+const ringMesh = new THREE.Mesh(ringGeo, ringMat);
+tagMesh.add(ringMesh);
+
+// Distance lines (anchor → tag)
+const distLines = {};
+for (const name of Object.keys(ANCHORS)) {
+  const mat  = new THREE.LineBasicMaterial({ color: 0x1e3a5a, transparent: true, opacity: 0.5 });
+  const geo  = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+  const line = new THREE.Line(geo, mat);
+  scene.add(line);
+  distLines[name] = line;
+}
+
+function updateDistLines() {
+  const tp = tagMesh.position;
+  for (const [name, line] of Object.entries(distLines)) {
+    const ap = anchorMeshes[name].position;
+    const pts = [
+      new THREE.Vector3(ap.x, ap.y, ap.z),
+      new THREE.Vector3(tp.x, tp.y, tp.z),
+    ];
+    line.geometry.setFromPoints(pts);
+    line.geometry.attributes.position.needsUpdate = true;
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  Canvas labels (simple sprites)
+// ═══════════════════════════════════════════════════════
+
+function addLabel(text, pos, color = 0xffffff) {
+  const canvas  = document.createElement('canvas');
+  canvas.width  = 128; canvas.height = 40;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = `#${color.toString(16).padStart(6,'0')}`;
+  ctx.font = 'bold 22px Courier New';
+  ctx.fillText(text, 4, 28);
+
+  const tex     = new THREE.CanvasTexture(canvas);
+  const mat     = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+  const sprite  = new THREE.Sprite(mat);
+  sprite.scale.set(20, 6, 1);
+  sprite.position.set(pos[0], pos[1], pos[2] + 10);
+  scene.add(sprite);
+}
+
+// ═══════════════════════════════════════════════════════
+//  UI helpers
+// ═══════════════════════════════════════════════════════
+
+const el = id => document.getElementById(id);
+
+function setWsState(state) {      // 'connecting' | 'connected' | 'disconnected'
+  const dot   = el('ws-dot');
+  const label = el('ws-label');
+  dot.className = state;
+  label.textContent = state.toUpperCase();
+}
+
+function updatePanel(pos, distances) {
+  if (pos) {
+    el('px').textContent = pos[0].toFixed(1) + ' cm';
+    el('py').textContent = pos[1].toFixed(1) + ' cm';
+    el('pz').textContent = pos[2].toFixed(1) + ' cm';
+    ['px','py','pz'].forEach(id => el(id).classList.add('active'));
+  }
+
+  const dMap = { Node1:'d1', Node2:'d2', Node3:'d3', Node4:'d4' };
+  if (distances) {
+    for (const [node, elId] of Object.entries(dMap)) {
+      const v = distances[node];
+      el(elId).textContent = (v != null) ? v.toFixed(1) : '—';
+    }
+  }
+}
+
+function applyPosition(pos) {
+  // Smooth lerp to new position
+  targetPos.set(pos[0], pos[1], pos[2]);
+}
+
+const targetPos = new THREE.Vector3(50, 50, 30);
+
+// ═══════════════════════════════════════════════════════
+//  WebSocket connection
+// ═══════════════════════════════════════════════════════
+
+const WS_URL = 'ws://127.0.0.1:8765';
+let   ws     = null;
+let   reconnectTimer = null;
+
+function connect() {
+  if (ws && ws.readyState <= WebSocket.OPEN) return;
+  setWsState('connecting');
+
+  ws = new WebSocket(WS_URL);
+
+  ws.onopen = () => {
+    setWsState('connected');
+    clearTimeout(reconnectTimer);
+  };
+
+  ws.onmessage = (event) => {
+    let msg;
+    try { msg = JSON.parse(event.data); }
+    catch { return; }
+
+    if (msg.position)  applyPosition(msg.position);
+    if (msg.position || msg.distances) updatePanel(msg.position, msg.distances);
+  };
+
+  ws.onerror = () => {};          // onclose handles reconnect
+
+  ws.onclose = () => {
+    setWsState('disconnected');
+    reconnectTimer = setTimeout(connect, 3000);
+  };
+}
+
+connect();
+
+// ═══════════════════════════════════════════════════════
+//  Test simulation  — circular flight path inside anchor bounds
+// ═══════════════════════════════════════════════════════
+
+let testTimer  = null;
+let testPhase  = 0;
+
+function dist3(ax, ay, az, bx, by, bz) {
+  return Math.sqrt((ax-bx)**2 + (ay-by)**2 + (az-bz)**2);
+}
+
+function simTick() {
+  testPhase += 0.04;
+
+  // Gentle circular path, slowly rising and falling
+  const x = 50 + 35 * Math.cos(testPhase);
+  const y = 50 + 35 * Math.sin(testPhase);
+  const z = 20 + 15 * Math.sin(testPhase * 0.7);
+
+  // Euclidean distances from each anchor + small noise
+  const noise = () => (Math.random() - 0.5) * 1.5;
+  const distances = {};
+  for (const [name, ap] of Object.entries(ANCHORS)) {
+    distances[name] = parseFloat(
+      (dist3(x, y, z, ap[0], ap[1], ap[2]) + noise()).toFixed(2)
+    );
+  }
+
+  // Occasionally drop one measurement (simulates ---- in raw data)
+  if (Math.random() < 0.12) {
+    const drop = Object.keys(distances)[Math.floor(Math.random() * 4)];
+    distances[drop] = null;
+  }
+
+  applyPosition([x, y, z]);
+  updatePanel([x, y, z], distances);
+}
+
+function toggleTest() {
+  const btn = el('test-btn');
+  if (testTimer) {
+    clearInterval(testTimer);
+    testTimer = null;
+    btn.textContent  = '▶ TEST SIM';
+    btn.classList.remove('running');
+  } else {
+    testTimer = setInterval(simTick, 100);   // 10 Hz
+    btn.textContent  = '■ STOP SIM';
+    btn.classList.add('running');
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  Render loop
+// ═══════════════════════════════════════════════════════
+
+function animate() {
+  requestAnimationFrame(animate);
+
+  // Smooth tag movement
+  tagMesh.position.lerp(targetPos, 0.1);
+  updateDistLines();
+
+  // Slow rotation of anchor octahedrons
+  const t = performance.now() * 0.001;
+  for (const mesh of Object.values(anchorMeshes)) {
+    mesh.rotation.y = t * 0.5;
+    mesh.rotation.x = t * 0.3;
+  }
+
+  // Pulse the ring
+  ringMesh.rotation.z = t;
+  ringMesh.material.opacity = 0.2 + 0.15 * Math.sin(t * 2);
+
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+animate();
+
+// Expose to global scope for the onclick button attribute
+window.toggleTest = toggleTest;
+</script>
+</body>
+</html>

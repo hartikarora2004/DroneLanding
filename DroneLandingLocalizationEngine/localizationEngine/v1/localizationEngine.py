@@ -3,12 +3,13 @@ This is the localization Engine.
 """
 import math
 import time
-# from datetime import datetime
 
 from DroneLandingLocalizationEngine.localizationEngine.utils.constants import anchor_locations
 from DroneLandingLocalizationEngine.localizationEngine.utils.trilateration_3d import trilateration_3d
 from DroneLandingLocalizationEngine.localizationEngine.utils.kalman_filter import PositionKalman3D
 from DroneLandingLocalizationEngine.localizationEngine.utils.parser import parse_anchor_locations  # consider renaming
+from DroneLandingLocalizationEngine.model.model import AnchorWeightModel
+from DroneLandingLocalizationEngine.settings.settings import Settings
 
 class LocalizationEngine:
     def __init__(self):
@@ -21,6 +22,10 @@ class LocalizationEngine:
             self._measurements[anchor] = math.inf
 
         self._kalman_filter = PositionKalman3D(dt=self._dt, init_pos=[0, 0, 0], init_vel=[0, 0, 0])
+
+        # Loaded once here — no per-call overhead
+        model_path = Settings().get("MODEL_PATH")
+        self._weight_model = AnchorWeightModel(model_path)
 
         self._output_file = "corrected_positions.txt"
 
@@ -61,7 +66,8 @@ class LocalizationEngine:
             print("Invalid result")
             return None
 
-        trilateration_result = trilateration_3d(self._anchor_locations, valid_distances)
+        weights = self._weight_model.predict(valid_distances)
+        trilateration_result = trilateration_3d(self._anchor_locations, valid_distances, anchor_weights=weights)
 
         corrected_result = self._kalman_filter.update(trilateration_result)
         print("Corrected_result : ", corrected_result )
